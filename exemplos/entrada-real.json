@@ -1,0 +1,76 @@
+{
+  "cwd": "/docker/meu-projeto",
+  "effort": {
+    "level": "xhigh"
+  },
+  "session_name": "Configuração de barra de status",
+  "model": {
+    "id": "claude-opus-5-5",
+    "display_name": "Opus 5.5"
+  },
+  "workspace": {
+    "current_dir": "/docker/meu-projeto",
+    "project_dir": "/docker/meu-projeto",
+    "added_dirs": [],
+    "repo": {
+      "host": "github.com",
+      "owner": "SchulzeTecnologia",
+      "name": "meu-projeto"
+    }
+  },
+  "version": "2.1.283",
+  "output_style": {
+    "name": "default"
+  },
+  "cost": {
+    "total_cost_usd": 1.2728174000000003,
+    "total_duration_ms": 961963,
+    "total_api_duration_ms": 237758,
+    "total_lines_added": 140,
+    "total_lines_removed": 1
+  },
+  "context_window": {
+    "total_input_tokens": 95232,
+    "total_output_tokens": 3,
+    "context_window_size": 1000000,
+    "current_usage": {
+      "input_tokens": 2,
+      "output_tokens": 3,
+      "cache_creation_input_tokens": 1092,
+      "cache_read_input_tokens": 94138
+    },
+    "used_percentage": 10,
+    "remaining_percentage": 90
+  },
+  "exceeds_200k_tokens": false,
+  "prompt_cache": {
+    "warm": true,
+    "caching_observed": true,
+    "ttl": "1h",
+    "expires_at": 1790619506,
+    "requests": 25,
+    "misses": 0,
+    "expected_rebuilds": 0,
+    "hit_ratio": 0.959086305732674,
+    "cache_write_tokens": 68588,
+    "miss_recache_tokens": 0,
+    "last_miss_at": null,
+    "last_miss_cause": null,
+    "miss_causes": {},
+    "recache_tokens_if_cold": 94140
+  },
+  "fast_mode": false,
+  "thinking": {
+    "enabled": true
+  },
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 1,
+      "resets_at": 1790631000
+    },
+    "seven_day": {
+      "used_percentage": 19,
+      "resets_at": 1790935200
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "cwd": "/docker/statusbar-claude-schulze",
+  "model": {
+    "id": "claude-opus-5-5",
+    "display_name": "Opus 5.5"
+  },
+  "workspace": {
+    "current_dir": "/docker/statusbar-claude-schulze",
+    "project_dir": "/docker/statusbar-claude-schulze"
+  },
+  "cost": {
+    "total_cost_usd": 0.47,
+    "total_duration_ms": 725000,
+    "total_lines_added": 156,
+    "total_lines_removed": 23
+  },
+  "context_window": {
+    "context_window_size": 1000000,
+    "used_percentage": 47,
+    "remaining_percentage": 53,
+    "total_input_tokens": 94140
+  },
+  "rate_limits": {
+    "five_hour": {
+      "used_percentage": 23.5,
+      "resets_at": 1790631000
+    },
+    "seven_day": {
+      "used_percentage": 41.2,
+      "resets_at": 1790935200
+    }
+  },
+  "effort": {
+    "level": "xhigh"
+  }
+}
