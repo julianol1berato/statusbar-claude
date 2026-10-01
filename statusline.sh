@@ -1,157 +1,157 @@
 #!/usr/bin/env bash
-# Claude Code status line: RGB gradient, dynamic emoji, context tokens, rate limits with reset time,
-# cost, code velocity, model + effort
+# statusbar-claude-schulze · barra de status do Claude Code
+# https://github.com/SchulzeTecnologia/statusbar-claude-schulze
+#
+# O Claude Code roda este script a cada resposta, com os dados da sessão em JSON na entrada
+# padrão, e mostra a linha que ele imprimir. Para ser rápido, só abre dois processos (jq e git);
+# o resto usa comandos internos do bash, sem subshells. Compatível com bash 3.2 e jq 1.6+.
 
-input=$(cat)
+LC_ALL=C   # printf com ponto decimal em qualquer idioma do sistema
 
-# ── Colors ──
-CYAN='\033[36m'
-GREEN='\033[32m'
-YELLOW='\033[33m'
-RED='\033[31m'
-MAGENTA='\033[35m'
-DIM='\033[2m'
-BOLD='\033[1m'
-RESET='\033[0m'
+# ── Aparência ────────────────────────────────────────────────────────────────
+E=$'\033['
+RST="${E}0m" NEGRITO="${E}1m" APAGADO="${E}2m"
+VERMELHO="${E}31m" VERDE="${E}32m" AMARELO="${E}33m" ROXO="${E}35m" CIANO="${E}36m"
+VAZIO="${E}38;2;60;60;60m"     # blocos ainda não usados da barra
 
-# ── Truecolor helper ──
-rgb() { printf '\033[38;2;%d;%d;%dm' "$1" "$2" "$3"; }
+SEP=" ${APAGADO}|${RST} "      # entre as partes da linha
+LARGURA=20                     # blocos da barra de contexto
 
-# ── Parse JSON fields ──
-# A single jq call (one per field costs ~12ms each). Fields are joined with \x1f, a
-# non-whitespace separator, so `read` keeps empty fields in place.
-IFS=$'\x1f' read -r model used cost lines_add lines_del cwd \
-  five_hr seven_day five_hr_reset seven_day_reset ctx_tokens ctx_size effort <<< "$(
-  echo "$input" | jq -r '[
-    .model.display_name // "Unknown",
-    .context_window.used_percentage // "",
-    .cost.total_cost_usd // 0,
-    .cost.total_lines_added // 0,
-    .cost.total_lines_removed // 0,
-    .workspace.current_dir // .cwd // "",
-    .rate_limits.five_hour.used_percentage // "",
-    .rate_limits.seven_day.used_percentage // "",
-    .rate_limits.five_hour.resets_at // "",
-    .rate_limits.seven_day.resets_at // "",
-    .context_window.total_input_tokens // "",
-    .context_window.context_window_size // "",
-    .effort.level // ""
-  ] | map(tostring) | join("\u001f")'
-)"
+# Degradê da barra: grupos de 4 números = posição (0–100), vermelho, verde, azul.
+# Entre dois pontos a cor é interpolada.
+DEGRADE=(0 0 200 80   50 220 200 0   100 220 40 20)
 
-# ── Git info ──
-branch=""
-repo=""
-if [ -n "$cwd" ]; then
-  branch=$(git -C "$cwd" --no-optional-locks symbolic-ref --short HEAD 2>/dev/null)
-  repo=$(basename "$(git -C "$cwd" --no-optional-locks rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
-fi
+# Emoji do contexto: pares "a partir de quantos %" e emoji, do maior para o menor
+EMOJIS=(90 🚨   70 🔥   20 ⚡   0 🟢)
 
-# ── Formatting helpers ──
-# 94140 -> 94k, 200000 -> 200k, 1000000 -> 1M, 1500000 -> 1.5M
-fmt_tokens() {
-  local n=${1%.*}
-  if [ "$n" -ge 1000000 ]; then
-    if [ $(( n % 1000000 )) -eq 0 ]; then printf '%dM' $(( n / 1000000 ))
-    else printf '%d.%dM' $(( n / 1000000 )) $(( n % 1000000 / 100000 )); fi
-  elif [ "$n" -ge 1000 ]; then printf '%dk' $(( (n + 500) / 1000 ))
-  else printf '%d' "$n"; fi
+# ── Funções (gravam o resultado na variável cujo nome vem no último argumento) ──
+
+# Percentual arredondado e colorido: verde, amarelo a partir de 70, vermelho a partir de 90
+pct() {
+  local p cor=$VERDE
+  printf -v p '%.0f' "$1" 2>/dev/null || p=0
+  (( p >= 70 )) && cor=$AMARELO
+  (( p >= 90 )) && cor=$VERMELHO
+  printf -v "$2" '%s%s%%%s' "$cor" "$p" "$RST"
 }
 
-# Epoch seconds -> local time (GNU date, falling back to BSD/macOS date)
-fmt_epoch() { date -d "@${1%.*}" +"$2" 2>/dev/null || date -r "${1%.*}" +"$2"; }
-
-# ── Context bar: RGB gradient, full blocks only ──
-BAR_WIDTH=20
-
-if [ -n "$used" ]; then
-  used_int=$(printf '%.0f' "$used")
-
-  # Round to nearest block
-  filled=$(( (used_int * BAR_WIDTH + 50) / 100 ))
-
-  bar=""
-  for (( i=0; i<BAR_WIDTH; i++ )); do
-    pos=$(( i * 100 / (BAR_WIDTH - 1) ))
-
-    if [ "$pos" -le 50 ]; then
-      r=$(( 0 + 220 * pos / 50 ))
-      g=200
-      b=$(( 80 - 80 * pos / 50 ))
-    else
-      adj=$(( pos - 50 ))
-      r=220
-      g=$(( 200 - 160 * adj / 50 ))
-      b=$(( 0 + 20 * adj / 50 ))
-    fi
-
-    if [ "$i" -lt "$filled" ]; then
-      bar="${bar}$(rgb $r $g $b)█"
-    else
-      bar="${bar}\033[38;2;60;60;60m░"
-    fi
-  done
-  bar="${bar}${RESET}"
-
-  if [ "$used_int" -ge 90 ]; then status_emoji="🚨"
-  elif [ "$used_int" -ge 70 ]; then status_emoji="🔥"
-  elif [ "$used_int" -ge 20 ]; then status_emoji="⚡"
-  else status_emoji="🟢"; fi
-
-  if [ "$used_int" -ge 90 ]; then pct_color="$RED"
-  elif [ "$used_int" -ge 70 ]; then pct_color="$YELLOW"
-  else pct_color="$GREEN"; fi
-
-  ctx_part="${status_emoji} ${bar} ${pct_color}${used_int}%${RESET}"
-  [ -n "$ctx_tokens" ] && [ -n "$ctx_size" ] && \
-    ctx_part="${ctx_part} ${DIM}$(fmt_tokens "$ctx_tokens")/$(fmt_tokens "$ctx_size")${RESET}"
-else
-  ctx_part="🟢 \033[38;2;60;60;60m░░░░░░░░░░░░░░░░░░░░${RESET} --%"
-fi
-
-# ── Rate limits (Pro/Max only; absent until the first API response) ──
-pct_colored() {
-  local p
-  p=$(printf '%.0f' "$1")
-  if [ "$p" -ge 90 ]; then printf '%s' "${RED}${p}%${RESET}"
-  elif [ "$p" -ge 70 ]; then printf '%s' "${YELLOW}${p}%${RESET}"
-  else printf '%s' "${GREEN}${p}%${RESET}"; fi
+# Tokens abreviados: 940 → 940 · 94140 → 94k · 200000 → 200k · 1000000 → 1M · 1500000 → 1.5M
+abrevia() {
+  local n=${1%.*} d
+  case $n in ''|*[!0-9]*) n=0 ;; esac   # só dígitos entram na conta (o bash avalia texto em (( )))
+  if (( n >= 999500 )); then
+    d=$(( (n + 50000) / 100000 ))   # décimos de milhão
+    if (( d % 10 )); then printf -v "$2" '%d.%dM' $(( d / 10 )) $(( d % 10 ))
+    else printf -v "$2" '%dM' $(( d / 10 )); fi
+  elif (( n >= 1000 )); then printf -v "$2" '%dk' $(( (n + 500) / 1000 ))
+  else printf -v "$2" '%d' "$n"; fi
 }
 
-limits_part=""
-if [ -n "$five_hr" ]; then
-  limits_part="5h $(pct_colored "$five_hr")"
-  [ -n "$five_hr_reset" ] && limits_part="${limits_part} ${DIM}↻$(fmt_epoch "$five_hr_reset" '%H:%M')${RESET}"
-fi
-if [ -n "$seven_day" ]; then
-  seven_part="7d $(pct_colored "$seven_day")"
-  if [ -n "$seven_day_reset" ]; then
-    # Resets today: show the time; otherwise the date
-    fmt='%d/%m'
-    [ "$(fmt_epoch "$seven_day_reset" '%F')" = "$(date +%F)" ] && fmt='%H:%M'
-    seven_part="${seven_part} ${DIM}↻$(fmt_epoch "$seven_day_reset" "$fmt")${RESET}"
+# ── Dados da sessão: um jq lê tudo, valida os tipos e já converte os horários ───
+# Campos separados por \x1f, que não é espaço, para o read manter os vazios no lugar.
+# Um campo ausente ou com tipo inesperado vira vazio, sem derrubar os outros.
+IFS=$'\x1f' read -r modelo ctx_pct custo mais menos pasta \
+  h5_pct d7_pct h5_reset d7_reset ctx_tokens ctx_total effort <<< "$(jq -r '
+  def campo(f): try f catch null;
+  def num(f): try (f | tonumber) catch null;
+  def texto(f): campo(f) | strings | explode | map(select(. >= 32 and (. < 127 or . > 159))) | implode;
+  def quando($fmt): try (tonumber | floor | localtime | strflocaltime($fmt)) catch "";
+  def hoje: now | quando("%Y-%m-%d");
+  [ texto(.model.display_name) // "Unknown",
+    num(.context_window.used_percentage) // "",
+    num(.cost.total_cost_usd) // 0,
+    num(.cost.total_lines_added) // 0,
+    num(.cost.total_lines_removed) // 0,
+    (campo(.workspace.current_dir) // campo(.cwd) | strings | select(explode | all(. >= 32 and . != 127))) // "",
+    num(.rate_limits.five_hour.used_percentage) // "",
+    num(.rate_limits.seven_day.used_percentage) // "",
+    (campo(.rate_limits.five_hour.resets_at) | if . then quando("%H:%M") else "" end),
+    (campo(.rate_limits.seven_day.resets_at)
+       | if . then (if quando("%Y-%m-%d") == hoje then quando("%H:%M") else quando("%d/%m") end) else "" end),
+    num(.context_window.total_input_tokens) // "",
+    num(.context_window.context_window_size) // "",
+    texto(.effort.level) // ""
+  ] | map(tostring) | join("\u001f")')"
+effort=${effort%$'\r'}   # jq.exe no Windows termina a linha com \r\n
+
+# ── Repositório e branch ─────────────────────────────────────────────────────
+# Um git devolve a raiz do repositório e a branch. Com HEAD solto ou num repositório
+# ainda sem commits ele responde "HEAD"; só nesses casos roda um segundo git.
+repo='' branch=''
+if [[ -n $pasta ]]; then
+  git_out=$(git -C "$pasta" --no-optional-locks rev-parse --show-toplevel --abbrev-ref HEAD 2>/dev/null)
+  if [[ -n $git_out ]]; then
+    raiz=${git_out%%$'\n'*}
+    repo=${raiz##*/}
+    [[ $git_out == *$'\n'* ]] && branch=${git_out#*$'\n'}
+    [[ $branch == HEAD ]] && branch=$(git -C "$pasta" --no-optional-locks symbolic-ref --short -q HEAD 2>/dev/null)
+    repo=${repo//[[:cntrl:]]/} branch=${branch//[[:cntrl:]]/}   # nome de pasta pode ter ESC
   fi
-  limits_part="${limits_part:+$limits_part ${DIM}·${RESET} }${seven_part}"
 fi
 
-# ── Cost ──
-cost_part="${YELLOW}$(printf '$%.2f' "$cost")${RESET}"
+# ── Contexto ─────────────────────────────────────────────────────────────────
+if [[ -n $ctx_pct ]]; then
+  printf -v usado '%.0f' "$ctx_pct"
+  cheios=$(( (usado * LARGURA + 50) / 100 ))
 
-# ── Code velocity ──
-velocity="${GREEN}+${lines_add}${RESET} ${RED}-${lines_del}${RESET}"
+  barra=''
+  for (( i = 0; i < LARGURA; i++ )); do
+    if (( i >= cheios )); then barra+="${VAZIO}░"; continue; fi
+    pos=$(( i * 100 / (LARGURA - 1) ))
+    j=0   # início do trecho do degradê onde a posição cai
+    while (( j + 8 < ${#DEGRADE[@]} && pos > DEGRADE[j + 4] )); do (( j += 4 )); done
+    p0=${DEGRADE[j]} dp=$(( DEGRADE[j + 4] - DEGRADE[j] ))
+    r=$(( DEGRADE[j + 1] + (DEGRADE[j + 5] - DEGRADE[j + 1]) * (pos - p0) / dp ))
+    g=$(( DEGRADE[j + 2] + (DEGRADE[j + 6] - DEGRADE[j + 2]) * (pos - p0) / dp ))
+    b=$(( DEGRADE[j + 3] + (DEGRADE[j + 7] - DEGRADE[j + 3]) * (pos - p0) / dp ))
+    barra+="${E}38;2;${r};${g};${b}m█"
+  done
+  barra+=$RST
 
-# ── Single line ──
-out=""
-[ -n "$repo" ] && out="${BOLD}${YELLOW}${repo}${RESET}"
-[ -n "$branch" ] && out="${out:+$out }${BOLD}${CYAN}🌿 (${branch})${RESET}"
-out="${out:+$out ${DIM}|${RESET} }${ctx_part}"
-[ -n "$limits_part" ] && out="${out} ${DIM}|${RESET} ${limits_part}"
-out="${out} ${DIM}|${RESET} ${cost_part}"
-out="${out} ${DIM}|${RESET} ${velocity}"
-if [ -n "$effort" ]; then
-  out="${out} ${DIM}|${RESET} ${MAGENTA}🤖 ${model} (${effort})${RESET}"
+  emoji=${EMOJIS[${#EMOJIS[@]} - 1]}
+  for (( k = 0; k < ${#EMOJIS[@]}; k += 2 )); do
+    (( usado >= EMOJIS[k] )) && { emoji=${EMOJIS[k + 1]}; break; }
+  done
+
+  usado_txt='' t1='' t2=''
+  pct "$ctx_pct" usado_txt
+  ctx="$emoji $barra $usado_txt"
+  if [[ -n $ctx_tokens && -n $ctx_total ]]; then
+    abrevia "$ctx_tokens" t1
+    abrevia "$ctx_total" t2
+    ctx+=" ${APAGADO}${t1}/${t2}${RST}"
+  fi
 else
-  out="${out} ${DIM}|${RESET} ${MAGENTA}🤖 ${model}${RESET}"
+  printf -v vazios '%*s' "$LARGURA" ''
+  ctx="${EMOJIS[${#EMOJIS[@]} - 1]} ${VAZIO}${vazios// /░}${RST} --%"
 fi
 
-printf '%b' "$out"
+# ── Limites de 5h / 7d (só Pro/Max, depois da primeira resposta) ─────────────────
+limites='' t=''
+if [[ -n $h5_pct ]]; then
+  pct "$h5_pct" t
+  limites="5h $t"
+  [[ -n $h5_reset ]] && limites+=" ${APAGADO}↻${h5_reset}${RST}"
+fi
+if [[ -n $d7_pct ]]; then
+  pct "$d7_pct" t
+  t="7d $t"
+  [[ -n $d7_reset ]] && t+=" ${APAGADO}↻${d7_reset}${RST}"
+  limites="${limites:+$limites ${APAGADO}·${RST} }$t"
+fi
+
+# ── Custo, linhas e modelo ───────────────────────────────────────────────────
+printf -v custo_txt '%s$%.2f%s' "$AMARELO" "${custo:-0}" "$RST"
+linhas="${VERDE}+${mais}${RST} ${VERMELHO}-${menos}${RST}"
+modelo_txt="${ROXO}🤖 ${modelo}${effort:+ ($effort)}${RST}"
+
+# ── Linha final: as partes vazias ficam de fora ─────────────────────────────────
+cabeca=''
+[[ -n $repo ]] && cabeca="${NEGRITO}${AMARELO}${repo}${RST}"
+[[ -n $branch ]] && cabeca="${cabeca:+$cabeca }${NEGRITO}${CIANO}🌿 (${branch})${RST}"
+
+linha=''
+for parte in "$cabeca" "$ctx" "$limites" "$custo_txt" "$linhas" "$modelo_txt"; do
+  [[ -n $parte ]] && linha+="${linha:+$SEP}$parte"
+done
+printf '%s' "$linha"

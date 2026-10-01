@@ -28,7 +28,7 @@ Barra de status para o **Claude Code**, em uma linha: quanto do contexto já foi
 jq --version && git --version
 ```
 
-Se os dois comandos mostrarem uma versão, siga para o passo 2. Se algum der `command not found`:
+Se os dois comandos mostrarem uma versão (o `jq` precisa ser 1.6 ou mais novo), siga para o passo 2. Se algum der `command not found`:
 
 <details>
 <summary><b>Como instalar o <code>jq</code> e o <code>git</code></b></summary>
@@ -55,7 +55,7 @@ A barra usa cor de 24 bits (truecolor) e emoji. Funcionam bem: terminal do VS Co
 
 - **Terminal.app** antigo do macOS não tem truecolor: o degradê sai com cores aproximadas.
 - **tmux**: acrescente `set -as terminal-features ',*:RGB'` ao `~/.tmux.conf`.
-- Testado em Linux. No macOS deve funcionar (o script cai no `date` do BSD quando o do GNU não existe). No Windows, só pelo Git Bash ou WSL, e ainda não foi testado.
+- Testado em Linux com bash 5.3 e com bash 3.2 (o que vem no macOS), e com jq 1.6, 1.7 e 1.8. No Windows, só pelo Git Bash ou WSL, e ainda não foi testado.
 
 </details>
 
@@ -71,7 +71,8 @@ O instalador termina mostrando a barra com dados de exemplo:
 
 ```
 instalado: /home/voce/.claude/statusline.sh
-settings:  /home/voce/.claude/settings.json (backup em /home/voce/.claude/settings.json.bak)
+backup:    /home/voce/.claude/settings.json.bak-20261001-142530
+settings:  /home/voce/.claude/settings.json
 
 prévia (com dados de exemplo):
 statusbar-claude-schulze 🌿 (main) | ⚡ █████████░░░░░░░░░░░ 47% 94k/1M | 5h 24% ↻18:30 · 7d 41% ↻02/10 | $0.47 | +156 -23 | 🤖 Opus 5.5 (xhigh)
@@ -139,10 +140,15 @@ Só duas coisas, ambas dentro de `~/.claude/`:
 
 | Arquivo | O que acontece | Backup |
 |---|---|---|
-| `~/.claude/statusline.sh` | É criado (ou substituído) | `statusline.sh.bak`, se já existia |
-| `~/.claude/settings.json` | Ganha a chave `statusLine`. As demais chaves não mudam | `settings.json.bak` |
+| `~/.claude/statusline.sh` | É criado ou substituído | Se já existia um script que **não** é desta barra: `statusline.sh.bak-AAAAMMDD-HHMMSS` |
+| `~/.claude/settings.json` | Ganha a chave `statusLine`. As demais chaves não mudam | Sempre que o arquivo muda: `settings.json.bak-AAAAMMDD-HHMMSS` |
 
-Se você já tinha outra barra de status configurada, o instalador avisa antes de substituir. A configuração anterior fica no `settings.json.bak`.
+- Os backups levam data e hora no nome, então rodar o instalador várias vezes nunca apaga um backup anterior.
+- Se o `settings.json` já está configurado, ele não é regravado.
+- Se você já tinha outra barra de status, o instalador avisa antes de substituir e a configuração anterior fica no backup.
+- Antes de mexer em qualquer arquivo, o instalador confere a versão do `jq`, se o `settings.json` é um JSON válido e se há permissão de escrita. Se algo falhar, para sem alterar nada.
+- O script é trocado de forma atômica (cópia temporária + renomear), para nenhuma sessão aberta do Claude Code ler um arquivo pela metade.
+- `./install.sh --remover` só apaga o `statusline.sh` se ele for desta barra.
 
 </details>
 
@@ -192,13 +198,13 @@ sequenceDiagram
     participant JQ as jq
     participant G as git (só leitura)
     CC->>SL: JSON da sessão pela entrada padrão (a cada resposta)
-    SL->>JQ: extrai os 13 campos numa única chamada
+    SL->>JQ: extrai os 13 campos e formata os horários, numa chamada só
     SL->>G: nome do repositório e branch da pasta atual
     SL-->>CC: imprime uma linha com cores ANSI
     Note over CC: mostra a linha acima do rodapé
 ```
 
-Cada atualização leva cerca de 170 ms. O script não acessa a rede, não usa `eval`, não grava arquivos e não lê credenciais.
+Cada atualização leva cerca de 35 ms: o script abre só dois processos (um `jq` e um `git`) e faz o resto com comandos internos do bash. Não acessa a rede, não usa `eval`, não grava arquivos e não lê credenciais.
 
 </details>
 
@@ -253,7 +259,7 @@ jq 'del(.effort) | .model.display_name = "Haiku 4.5"' exemplos/entrada.json | ba
 
 <br>
 
-Quase sempre é um `settings.json` com JSON inválido (vírgula sobrando, comentário `//`). O instalador para sem alterar nada. Para achar o erro:
+A mensagem `não é um objeto JSON válido` quase sempre é vírgula sobrando ou comentário `//` no `settings.json`. O instalador para sem alterar nada. Para achar o erro:
 
 ```bash
 jq . ~/.claude/settings.json
@@ -311,18 +317,18 @@ export TZ=America/Sao_Paulo
 
 ## 🎨 Personalizar
 
-Edite o `statusline.sh` **deste repositório** e rode `./install.sh` de novo para aplicar. O script está dividido em blocos:
+Edite o `statusline.sh` **deste repositório**, confira com `testes/rodar.sh` e rode `./install.sh` de novo para aplicar. O script está dividido em blocos:
 
 | Bloco | Para que serve |
 |---|---|
-| **Colors** | Códigos ANSI das cores |
-| **Parse JSON fields** | Lê todos os campos numa única chamada ao `jq`. Para usar um campo novo, acrescente-o na lista do `jq` **e** o nome da variável no `read`, na mesma posição |
-| **Git info** | Repositório e branch |
-| **Formatting helpers** | `fmt_tokens` (94140 → 94k) e `fmt_epoch` (data/hora local) |
-| **Context bar** | A barra de contexto em degradê + tokens |
-| **Rate limits** | Uso de 5h / 7d com horário de reset |
-| **Cost** / **Code velocity** | Custo e linhas |
-| **Single line** | Monta a linha final. Para mudar a ordem ou retirar partes, é aqui |
+| **Aparência** | Cores, separador, largura da barra, pontos do degradê (`DEGRADE`) e emojis por faixa de uso (`EMOJIS`). Para mudar o visual, quase sempre basta mexer aqui |
+| **Funções** | `pct` (percentual colorido) e `abrevia` (94140 → 94k) |
+| **Dados da sessão** | Um único `jq` lê todos os campos e já converte os horários de reset. Para usar um campo novo, acrescente-o na lista do `jq` **e** o nome da variável no `read`, na mesma posição |
+| **Repositório e branch** | Um único `git` |
+| **Contexto** | A barra em degradê, o emoji, o percentual e os tokens |
+| **Limites de 5h / 7d** | Uso e horário de reset |
+| **Custo, linhas e modelo** | Custo em dólar, linhas +/- e modelo com effort |
+| **Linha final** | Junta as partes, deixando de fora as vazias. Para mudar a ordem ou retirar partes, é aqui |
 
 <details>
 <summary><b>Campos disponíveis e cuidados ao editar</b></summary>
@@ -331,8 +337,11 @@ Edite o `statusline.sh` **deste repositório** e rode `./install.sh` de novo par
 
 Todos os campos que o Claude Code envia estão na [documentação oficial da status line](https://code.claude.com/docs/en/statusline), seção *Available data*, e `exemplos/entrada-real.json` mostra um JSON completo. Além dos usados aqui, há `session_name` (título automático da sessão), `workspace.repo`, `pr.number` / `pr.url`, `prompt_cache`, `fast_mode` e `thinking.enabled`.
 
-- O script roda a cada resposta: evite comandos lentos ou que acessem a rede. Cada `jq` ou `git` a mais custa ~10 ms.
+- O script roda a cada resposta: evite comandos lentos ou que acessem a rede. Cada programa externo custa de 10 a 15 ms, e cada `$(...)` uns 2 ms. Para formatar texto, prefira `printf -v variavel ...`, que não abre processo.
+- Mantenha compatível com o bash 3.2 (macOS): nada de `declare -A`, `mapfile`, `${var,,}` ou índices negativos.
 - Use `git --no-optional-locks` para não travar o repositório enquanto o Claude trabalha nele.
+
+**Testes.** `testes/rodar.sh` roda o script em 37 cenários (contexto em cada faixa, sem limites, repositório sem commits, HEAD solto, fora do git…) e compara a saída, byte a byte, com `testes/esperado.txt`. Se a mudança for proposital, rode `testes/rodar.sh --atualizar` e confira no `git diff` se o que mudou é o que você queria.
 
 </details>
 
@@ -347,6 +356,8 @@ install.sh                             # instala / remove no ~/.claude do usuár
 docs/preview.svg                       # imagem do topo deste README
 exemplos/entrada.json                  # JSON de exemplo para testar sem abrir o Claude Code
 exemplos/entrada-real.json             # JSON real enviado pelo Claude Code 2.1.283 (conta Max), com o nome do projeto trocado
+testes/rodar.sh                        # testes: compara a saída com testes/esperado.txt
+testes/esperado.txt                    # saída esperada de cada cenário
 LICENSE                                # licença MIT
 ```
 
@@ -362,7 +373,7 @@ LICENSE                                # licença MIT
 cd statusbar-claude-schulze && git pull && ./install.sh
 ```
 
-**Remover**: desliga a barra e apaga o script. As outras configurações não mudam.
+**Remover**: desliga a barra e apaga o script (só se ele for desta barra). As outras configurações não mudam, e o `settings.json` ganha um backup antes.
 
 ```bash
 ./install.sh --remover
@@ -375,6 +386,12 @@ Outra forma é digitar `/statusline clear` dentro do Claude Code.
 ## Segurança
 
 O script só lê o JSON que o Claude Code envia, consulta o git em modo somente leitura e imprime uma linha. Não acessa a rede, não usa `eval`, não grava arquivos e não lê credenciais.
+
+Ele também se protege de dados inesperados:
+- campos numéricos são validados antes de entrar em qualquer conta, e um campo com tipo errado vira vazio sem derrubar o resto da linha;
+- caracteres de controle no nome do modelo, no effort, no repositório e na branch são removidos, para nenhum texto vindo de fora injetar sequências de escape no terminal.
+
+O script e o instalador passam no [ShellCheck](https://www.shellcheck.net/) sem avisos.
 
 ## Licença
 
