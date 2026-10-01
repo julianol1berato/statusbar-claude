@@ -19,9 +19,6 @@ Barra de status para o **Claude Code**, em uma linha: quanto do contexto já foi
 
 ## ⚡ Instalar em 1 minuto
 
-> [!NOTE]
-> O repositório é privado: para clonar, é preciso ter acesso à organização **SchulzeTecnologia** no GitHub.
-
 ### Passo 1 · Confira os requisitos
 
 ```bash
