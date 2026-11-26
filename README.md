@@ -1,4 +1,4 @@
-# statusbar-claude-schulze
+# statusbar-claude
 
 Barra de status para o **Claude Code**, em uma linha: quanto do contexto já foi usado, quanto falta dos limites de 5 h e da semana (e quando eles zeram), custo da sessão, linhas alteradas e modelo em uso.
 
